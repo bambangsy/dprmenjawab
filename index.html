@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Voice Recognition App</title>
+</head>
+<body>
+    <h1>Voice Recognition App</h1>
+    <button id="recordButton">Start Recording</button>
+    <h2>Transcription:</h2>
+    <p id="transcription"></p>
+
+    <script>
+        let isRecording = false;
+        let mediaRecorder;
+        const recordButton = document.getElementById('recordButton');
+        const transcription = document.getElementById('transcription');
+
+        recordButton.addEventListener('click', function() {
+            if (!isRecording) {
+                navigator.mediaDevices.getUserMedia({ audio: true })
+                    .then(stream => {
+                        mediaRecorder = new MediaRecorder(stream);
+                        mediaRecorder.start();
+
+                        const audioChunks = [];
+                        mediaRecorder.addEventListener('dataavailable', event => {
+                            audioChunks.push(event.data);
+                        });
+
+                        mediaRecorder.addEventListener('stop', () => {
+                            const audioBlob = new Blob(audioChunks);
+                            const formData = new FormData();
+                            formData.append('audio_data', audioBlob, 'recording.wav');
+                            fetch('/upload', {
+                                method: 'POST',
+                                body: formData
+                            }).then(response => response.json())
+                            .then(data => {
+                                transcription.textContent = data.transcript;
+                            });
+                        });
+
+                        recordButton.textContent = 'Stop Recording';
+                    });
+            } else {
+                mediaRecorder.stop();
+                recordButton.textContent = 'Start Recording';
+            }
+            isRecording = !isRecording;
+        });
+    </script>
+</body>
+</html>
