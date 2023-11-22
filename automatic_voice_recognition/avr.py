@@ -1,39 +1,68 @@
-import speech_recognition as sr
 import streamlit as st
+from bokeh.models.widgets import Button
+from bokeh.models import CustomJS
+from streamlit_bokeh_events import streamlit_bokeh_events
 from ml import rqa
 
-# Initialize the recognizer
-recognizer = sr.Recognizer()
+# Define a button in Bokeh and set up JavaScript to handle speech recognition.
+stt_button = Button(label="Start Listening", width=100)
 
-def voice_recognition():
-    # Use the microphone as source for input.
-    with sr.Microphone() as source:
-        st.markdown("Adjusting for ambient noise. Please wait...")
-        recognizer.adjust_for_ambient_noise(source)
-        st.markdown("Please start speaking...")
+# The JavaScript code to handle the speech recognition start/stop toggle.
+stt_button.js_on_event("button_click", CustomJS(code="""
+    // Check if recognition is already defined and toggle it.
+    if (window.recognition) {
+        if (window.isListening) {
+            window.recognition.stop();
+            window.isListening = false;
+            this.label = "Start Listening";  // Change button label to 'Start Listening'
+        } else {
+            window.recognition.start();
+            window.isListening = true;
+            this.label = "Stop Listening";  // Change button label to 'Stop Listening'
+        }
+    } else {
+        // Initialize the speech recognition for the first click.
+        var recognition = new webkitSpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = false;
+        recognition.lang = 'id-ID';
+        window.recognition = recognition;
+        window.isListening = true;  // Set a flag to track the listening state.
+        this.label = "Stop Listening";
 
-        # Listen to the source
-        audio = recognizer.listen(source)
+        recognition.onresult = function(e) {
+            var value = e.results[e.resultIndex][0].transcript;
+            if (e.results[e.resultIndex].isFinal) {
+                document.dispatchEvent(new CustomEvent("GET_TEXT", {detail: value}));
+            }
+        };
 
-        st.markdown("Recording stopped, processing...")
+        recognition.onspeechend = function() {
+            recognition.stop();
+        };
 
-    # Recognize speech using Google's speech recognition
-    try:
-        # Recognize the speech
-        response = recognizer.recognize_google(audio, language="id-ID")
-        st.code("You said: " + response)
-        return response
-    except sr.UnknownValueError:
-        st.error("I'm sorry, I could not understand what you were saying.")
-    except sr.RequestError as e:
-        st.error("Could not request results from the speech recognition service; {0}".format(e))
+        recognition.onerror = function(event) {
+            if (event.error !== "aborted") {  // Ignore the 'aborted' error since we're handling it.
+                document.dispatchEvent(new CustomEvent("GET_TEXT", {detail: 'Error occurred in recognition: ' + event.error}));
+            }
+        };
 
-st.title("DPR Menjawab")
+        recognition.start();
+    }
+"""))
 
-# Button to start the voice recognition
-if st.button("Start Voice Recording"):
-    txt = voice_recognition()
-    if txt:
-        st.markdown('RESULT:')
-        st.markdown(rqa(txt)['result'])
+# Use Streamlit to handle the speech recognition events and display the results.
+result = streamlit_bokeh_events(
+    stt_button,
+    events="GET_TEXT",
+    key="listen",
+    refresh_on_update=False,
+    override_height=75,
+    debounce_time=0)
 
+if result:
+    if "GET_TEXT" in result:
+        st.subheader("PERTANYAAN:")
+        st.write(result.get("GET_TEXT"))
+        st.subheader("JAWABAN:")
+        st.write(rqa(result.get("GET_TEXT"))['result'])
